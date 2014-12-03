@@ -147,7 +147,6 @@ function acb_node_access_records_alter(&$grants, $node) {
   // We keep the existing grants and merge ours because we overrule them
   // by setting a high priority on our own grants in _acb_cascade_grants().
   // Apply array_filter to filter out any modules that didn't set access records.
-  //$grants = array_merge($grants, _acb_cascade_grants(array_filter($split_grants), TRUE));
   $grants = array_merge($grants, _acb_cascade_grants(array_filter($split_grants), TRUE));
 }
 
@@ -283,12 +282,13 @@ function _acb_cascade_grants($grants, $access_records = FALSE, &$output = array(
   //  - in case of access records: there are no remaining nesting levels
   //  - in case of user grants: always!
   if(!count($grants) || !$access_records) {
+    // Prepend 'acb' to comply to best practice of prefixing realms with the name of their responsible module.
+    $final_realm = 'acb&' . implode('&', $realm);
     // Finished combination; save it.
-    $realm = implode('&', $realm);
     if ($access_records) {
       // Node access record.
-      $output[$realm] = array(
-        'realm' => $realm,
+      $output[$final_realm] = array(
+        'realm' => $final_realm,
         'gid' => 0,
         'grant_view' => (int) $view,
         'grant_update' => (int) $update,
@@ -299,7 +299,7 @@ function _acb_cascade_grants($grants, $access_records = FALSE, &$output = array(
     else {
       // User grant.
       if (!empty($realm)) {
-        $output[$realm] = array(0);
+        $output[$final_realm] = array(0);
       }
     }
   }
