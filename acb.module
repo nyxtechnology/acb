@@ -285,7 +285,8 @@ function _acb_cascade_grants($grants, $access_records = FALSE, &$output = array(
     // Prepend 'acb' to comply to best practice of prefixing realms with the name of their responsible module.
     $final_realm = 'acb&' . implode('&', $realm);
     // Finished combination; save it.
-    if ($access_records) {
+    // Exclude empty access record grants as they are useless and only take up memory.
+    if ($access_records && ($view || $update || $delete)) {
       // Node access record.
       $output[$final_realm] = array(
         'realm' => $final_realm,
@@ -296,7 +297,7 @@ function _acb_cascade_grants($grants, $access_records = FALSE, &$output = array(
         'priority' => 100
       );
     }
-    else {
+    elseif (!$access_records) {
       // User grant.
       if (!empty($realm)) {
         $output[$final_realm] = array(0);
