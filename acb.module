@@ -6,58 +6,6 @@
  */
 
 /**
- * Implements hook_menu().
- */
-function acb_menu() {
-  $items = array();
-
-  $items['admin/structure/acb/fix_permissions'] = array(
-    'title' => 'Fix Domain Access permissions',
-    'page callback' => 'acb_fix_permissions',
-    'access arguments' => array('administer domains'),
-    'type' => MENU_CALLBACK,
-  );
-
-  return $items;
-}
-
-/**
- * Fixes required Domain Access permissions.
- */
-function acb_fix_permissions() {
-  user_role_grant_permissions(DRUPAL_AUTHENTICATED_RID, array('edit domain content', 'delete domain content'));
-  drupal_set_message(t('The changes have been saved.'));
-  drupal_goto('admin/people/permissions');
-}
-
-// If Domain Access is enabled, the 'edit domain content' and 'delete domain content' permissions
-// should be checked for the global authenticated user role to ensure proper functioning of this module.
-// Checking these permissions won't enforce allowance as the access is further controlled by other access control modules.
-if (module_exists('domain') ) {
-  /**
-   * Implements hook_init().
-   */
-  function acb_init() {
-    // Prevent message output after fix.
-    if (current_path() != 'admin/structure/acb/fix_permissions') {
-      $rid = DRUPAL_AUTHENTICATED_RID;
-      $permissions = user_role_permissions(array($rid => 0));
-      $edit = 'edit domain content';
-      $delete = 'delete domain content';
-      if (!(isset($permissions[$rid][$edit]) && $permissions[$rid][$edit]) ||
-          !(isset($permissions[$rid][$delete]) && $permissions[$rid][$delete])) {
-        drupal_set_message(
-          t('The Access Control Bridge module requires the "%edit" and "%delete" permissions for the authenticated user role to ensure proper functionality. Note that this will not open up a security hole since these permissions should be handled by other access control modules. <a href="/admin/structure/acb/fix_permissions">Click here</a> to enable these permissions automatically.',
-            array('%edit' => t('Edit any content on assigned domains'), '%delete' => t('Delete any content on assigned domains'))),
-          'error',
-          FALSE // $repeat
-        );
-      }
-    }
-  }
-}
-
-/**
  * Implements hook_modules_enabled().
  */
 function acb_modules_enabled($modules) {
@@ -129,6 +77,15 @@ function acb_node_access_records_alter(&$grants, $node) {
     });
   }
 
+  // Filter out any modules that didn't set access records.
+  $split_grants = array_filter($split_grants);
+
+  // Only proceed and alter the grants if multiple modules control this node.
+  // If this is not the case, the legacy user grants will control the node as usual.
+  if (count($split_grants) <= 1) {
+    return;
+  }
+
   // Convert 'all' realm grants to anonymous and authenticated role grants.
   $roles = array(DRUPAL_ANONYMOUS_RID, DRUPAL_AUTHENTICATED_RID);
   foreach ($split_grants as $module => $split_grant_module) {
@@ -146,8 +103,7 @@ function acb_node_access_records_alter(&$grants, $node) {
 
   // We keep the existing grants and merge ours because we overrule them
   // by setting a high priority on our own grants in _acb_cascade_grants().
-  // Apply array_filter to filter out any modules that didn't set access records.
-  $grants = array_merge($grants, _acb_cascade_grants(array_filter($split_grants), TRUE));
+  $grants = array_merge($grants, _acb_cascade_grants($split_grants, TRUE));
 }
 
 /**
@@ -168,6 +124,25 @@ function acb_node_grants_alter(&$grants, $account, $op) {
       ->fetchAllAssoc('acl_id');
   }
 
+  // For our ACB grants, we need the 'Edit any domain content' and 'Delete any domain content' permissions to be enabled to
+  // enable other modules to control it effectively (due to the AND-logic we're implementing).
+  // Add them to the user grants if not already present if Domain Access is active.
+  // Additionally, fork $grants so we don't add them permanently to the referenced grants array.
+  $acb_grants = $grants;
+  if (module_exists('domain') && ($op == 'update' || $op == 'delete')) {
+    $domains = $account->domain_user;
+    if (!empty($domains)) {
+      foreach ($domains as $id) {
+        if (abs($id) > 0) {
+          $value = ($id > 0) ? $id : 0;
+          if (!isset($acb_grants['domain_id']) || !in_array($value, $acb_grants['domain_id'])) {
+            $acb_grants['domain_id'][] = $value;
+          }
+        }
+      }
+    }
+  }
+
   foreach (acb_get_modules() as $module) {
     // ACL requires special care. Extract the ACL ids for the current module.
     if (module_exists('acl')) {
@@ -178,7 +153,7 @@ function acb_node_grants_alter(&$grants, $account, $op) {
       );
     }
 
-    foreach ($grants as $realm => $gids) {
+    foreach ($acb_grants as $realm => $gids) {
       // ACL requires special care. Filter out any ACL entries that were not set by the current module.
       if ($realm == 'acl') {
         $gids = array_intersect($gids, $acl_current);
@@ -195,9 +170,8 @@ function acb_node_grants_alter(&$grants, $account, $op) {
     }
   }
 
-  // We keep the existing grants and merge ours just for legacy reasons. The existing grants
-  // won't be used anymore since higher priority was set on our own grants in hook_node_access_records_alter().
-  // Apply array_filter to filter out any modules that didn't set grants.
+  // We keep the existing grants and merge ACB's to support the case where only one module controls the node.
+  // Filter out any modules that didn't set grants.
   $grants = array_merge($grants, _acb_cascade_grants(array_filter($split_grants)));
 }
 
