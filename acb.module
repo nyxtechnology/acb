@@ -51,7 +51,8 @@ function acb_node_access_records_alter(&$grants, $node) {
   // Split all grants into their respective controlling modules.
   $split_grants = array();
   foreach (acb_get_modules() as $module) {
-    $split_grants[$module] = array_filter($grants, function ($grant) use ($module) {
+    $grant_storage = array();
+    foreach ($grants as $key => $grant) {
       switch ($grant['realm']) {
         // 'all' and ACL require special care.
         case 'acl':
@@ -73,8 +74,11 @@ function acb_node_access_records_alter(&$grants, $node) {
           break;
       }
 
-      return (acb_is_module_realm($realm, $module) === TRUE);
-    });
+      if (acb_is_module_realm($realm, $module) === TRUE) {
+        $grant_storage[$key] = $grant;
+      }
+    }
+    $split_grants[$module] = $grant_storage;
   }
 
   // Filter out any modules that didn't set access records.
@@ -146,11 +150,13 @@ function acb_node_grants_alter(&$grants, $account, $op) {
   foreach (acb_get_modules() as $module) {
     // ACL requires special care. Extract the ACL ids for the current module.
     if (module_exists('acl')) {
-      $acl_current = array_keys(
-        array_filter($acl, function ($entry) use ($module) {
-          return ((acb_is_module_realm($entry->module, $module) === TRUE));
-        })
-      );
+        $entry_storage = array();
+        foreach ($acl as $key => $entry) {
+            if (acb_is_module_realm($entry->module, $module) === TRUE) {
+                $entry_storage[$key] = $entry;
+            }
+        }
+        $acl_current = array_keys($entry_storage);
     }
 
     foreach ($acb_grants as $realm => $gids) {

@@ -2,4 +2,3 @@ name = Access Control Bridge
 description = Bridge module linking Access Control modules so their access permissions work happily together.
 core = "7.x"
 package = Access control
-php = 5.3
