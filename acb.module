@@ -3,12 +3,18 @@
 /**
  * @file
  * Drupal hooks and functions for the acb module.
+ *
+ * @TODO: code cleanup.
+ * @TODO: define services where appropriate.
  */
 
+use Drupal\Core\Session\AccountInterface;
+use Drupal\node\NodeInterface;
+
 /**
- * Implements hook_modules_enabled().
+ * Implements hook_modules_installed().
  */
-function acb_modules_enabled($modules) {
+function acb_modules_installed($modules) {
   // Check if newly enabled modules are access control modules.
   $new = count(array_intersect(acb_get_modules(TRUE), $modules));
   if ($new) {
@@ -29,8 +35,8 @@ function acb_modules_enabled($modules) {
 function acb_get_modules($self = FALSE) {
   $modules = array_unique(
     array_merge(
-      module_implements('node_grants'),
-      module_implements('node_access_records')
+      \Drupal::moduleHandler()->getImplementations('node_grants'),
+      \Drupal::moduleHandler()->getImplementations('node_access_records')
     )
   );
   // Exclude ACL as it doesn't control anything on its own.
@@ -47,7 +53,7 @@ function acb_get_modules($self = FALSE) {
  *
  * Creates and inserts our cascaded access records for nodes.
  */
-function acb_node_access_records_alter(&$grants, $node) {
+function acb_node_access_records_alter(&$grants, NodeInterface $node) {
   // Split all grants into their respective controlling modules.
   $split_grants = array();
   foreach (acb_get_modules() as $module) {
@@ -91,11 +97,12 @@ function acb_node_access_records_alter(&$grants, $node) {
   }
 
   // Convert 'all' realm grants to anonymous and authenticated role grants.
-  $roles = array(DRUPAL_ANONYMOUS_RID, DRUPAL_AUTHENTICATED_RID);
+  // @TODO: check if still needed in D8.
+  $roles = [0 => AccountInterface::ANONYMOUS_ROLE, 1 => AccountInterface::AUTHENTICATED_ROLE];
   foreach ($split_grants as $module => $split_grant_module) {
     foreach ($split_grant_module as $key => $split_grant) {
       if ($split_grant['realm'] == 'all') {
-        foreach ($roles as $rid) {
+        foreach ($roles as $rid => $rolename) {
           $split_grants[$module][$rid] = $split_grant;
           $split_grants[$module][$rid]['realm'] = $module . '_rid';
           $split_grants[$module][$rid]['gid'] = $rid;
@@ -107,7 +114,12 @@ function acb_node_access_records_alter(&$grants, $node) {
 
   // We keep the existing grants and merge ours because we overrule them
   // by setting a high priority on our own grants in _acb_cascade_grants().
-  $grants = array_merge($grants, _acb_cascade_grants($split_grants, TRUE));
+  // $grants = array_merge($grants, _acb_cascade_grants($split_grants, TRUE));
+
+  // @TODO: Find out if there is a reason to keep existing grants.
+  // Currently we only assign the ACB grants, to enforce multiple access control
+  // modules working together as expected.
+  $grants = _acb_cascade_grants($split_grants, TRUE);
 }
 
 /**
@@ -116,12 +128,12 @@ function acb_node_access_records_alter(&$grants, $node) {
  * Let Drupal know of the current user's grants.
  * We're using the _alter function because we need existing grants to calculate ours.
  */
-function acb_node_grants_alter(&$grants, $account, $op) {
+function acb_node_grants_alter(&$grants, AccountInterface $account, $op) {
   // Split all grants into their respective controlling modules and prepare the array for the recursive cascader.
   $split_grants = array();
 
   // ACL requires special care. The responsible module can only be determined by using the database.
-  if (module_exists('acl')) {
+  if (\Drupal::moduleHandler()->moduleExists('acl')) {
     $acl = db_select('acl')
       ->fields('acl', array('acl_id','module'))
       ->execute()
@@ -133,7 +145,8 @@ function acb_node_grants_alter(&$grants, $account, $op) {
   // Add them to the user grants if not already present if Domain Access is active.
   // Additionally, fork $grants so we don't add them permanently to the referenced grants array.
   $acb_grants = $grants;
-  if (module_exists('domain') && ($op == 'update' || $op == 'delete')) {
+  if (\Drupal::moduleHandler()->moduleExists('domain_access') && ($op == 'update' || $op == 'delete')) {
+    //@TODO: refactor, since domain_user property no longer exists.
     $domains = $account->domain_user;
     if (!empty($domains)) {
       foreach ($domains as $id) {
@@ -149,7 +162,7 @@ function acb_node_grants_alter(&$grants, $account, $op) {
 
   foreach (acb_get_modules() as $module) {
     // ACL requires special care. Extract the ACL ids for the current module.
-    if (module_exists('acl')) {
+    if (\Drupal::moduleHandler()->moduleExists('acl')) {
         $entry_storage = array();
         foreach ($acl as $key => $entry) {
             if (acb_is_module_realm($entry->module, $module) === TRUE) {
