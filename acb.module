@@ -10,6 +10,7 @@
 
 use Drupal\Core\Session\AccountInterface;
 use Drupal\node\NodeInterface;
+use Drupal\user\Entity\User;
 
 /**
  * Implements hook_modules_installed().
@@ -146,8 +147,8 @@ function acb_node_grants_alter(&$grants, AccountInterface $account, $op) {
   // Additionally, fork $grants so we don't add them permanently to the referenced grants array.
   $acb_grants = $grants;
   if (\Drupal::moduleHandler()->moduleExists('domain_access') && ($op == 'update' || $op == 'delete')) {
-    //@TODO: refactor, since domain_user property no longer exists.
-    $domains = $account->domain_user;
+    $user = User::load($account->id());
+    $domains = \Drupal::service('domain_access.manager')->getAccessValues($user);
     if (!empty($domains)) {
       foreach ($domains as $id) {
         if (abs($id) > 0) {
