@@ -41,7 +41,7 @@ function acb_get_modules($self = FALSE) {
     )
   );
   // Exclude ACL as it doesn't control anything on its own.
-  $exclude = array('acl');
+  $exclude = ['acl'];
   if ($self) $exclude[] = 'acb';
 
   // Sort the list so the modules are always returned in the same order.
@@ -56,9 +56,9 @@ function acb_get_modules($self = FALSE) {
  */
 function acb_node_access_records_alter(&$grants, NodeInterface $node) {
   // Split all grants into their respective controlling modules.
-  $split_grants = array();
+  $split_grants = [];
   foreach (acb_get_modules() as $module) {
-    $grant_storage = array();
+    $grant_storage = [];
     foreach ($grants as $key => $grant) {
       switch ($grant['realm']) {
         // 'all' and ACL require special care.
@@ -131,12 +131,12 @@ function acb_node_access_records_alter(&$grants, NodeInterface $node) {
  */
 function acb_node_grants_alter(&$grants, AccountInterface $account, $op) {
   // Split all grants into their respective controlling modules and prepare the array for the recursive cascader.
-  $split_grants = array();
+  $split_grants = [];
 
   // ACL requires special care. The responsible module can only be determined by using the database.
   if (\Drupal::moduleHandler()->moduleExists('acl')) {
     $acl = db_select('acl')
-      ->fields('acl', array('acl_id','module'))
+      ->fields('acl', ['acl_id','module'])
       ->execute()
       ->fetchAllAssoc('acl_id');
   }
@@ -164,7 +164,7 @@ function acb_node_grants_alter(&$grants, AccountInterface $account, $op) {
   foreach (acb_get_modules() as $module) {
     // ACL requires special care. Extract the ACL ids for the current module.
     if (\Drupal::moduleHandler()->moduleExists('acl')) {
-        $entry_storage = array();
+        $entry_storage = [];
         foreach ($acl as $key => $entry) {
             if (acb_is_module_realm($entry->module, $module) === TRUE) {
                 $entry_storage[$key] = $entry;
@@ -182,9 +182,9 @@ function acb_node_grants_alter(&$grants, AccountInterface $account, $op) {
       // If this realm is originating from the current module (or if ACL has entries), then add the gids.
       if ((acb_is_module_realm($realm, $module) === TRUE) || ($realm == 'acl' && !empty($gids))) {
         // Eventually prepare the module's subarray for pushing.
-        if (empty($split_grants[$module])) $split_grants[$module] = array();
+        if (empty($split_grants[$module])) $split_grants[$module] = [];
         foreach ($gids as $gid) {
-          array_push($split_grants[$module], array('realm' => $realm, 'gid' => $gid));
+          array_push($split_grants[$module], ['realm' => $realm, 'gid' => $gid]);
         }
       }
     }
@@ -246,7 +246,7 @@ function acb_is_module_realm($realm, $module) {
  * @return array
  *  The output grants array.
  */
-function _acb_cascade_grants($grants, $access_records = FALSE, &$output = array(), $realm = array(), $view = 1, $update = 1, $delete = 1) {
+function _acb_cascade_grants($grants, $access_records = FALSE, &$output = [], $realm = [], $view = 1, $update = 1, $delete = 1) {
   // Let's make any possible cross-combination respecting the given element order of $grants.
   if(count($grants)) {
     // This nesting level has available combinations left.
@@ -282,19 +282,19 @@ function _acb_cascade_grants($grants, $access_records = FALSE, &$output = array(
     // Exclude empty access record grants as they are useless and only take up memory.
     if ($access_records && ($view || $update || $delete)) {
       // Node access record.
-      $output[$final_realm] = array(
+      $output[$final_realm] = [
         'realm' => $final_realm,
         'gid' => 0,
         'grant_view' => (int) $view,
         'grant_update' => (int) $update,
         'grant_delete' => (int) $delete,
         'priority' => 100
-      );
+      ];
     }
     elseif (!$access_records) {
       // User grant.
       if (!empty($realm)) {
-        $output[$final_realm] = array(0);
+        $output[$final_realm] = [0];
       }
     }
   }
